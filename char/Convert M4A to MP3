@@ -1,0 +1,26 @@
+name: Convert M4A to MP3
+
+on:
+  push:
+    paths:
+      - '**.m4a'
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Convert m4a to mp3
+        run: |
+          find . -name "*.m4a" | while read f; do
+            ffmpeg -i "$f" -codec:a libmp3lame -b:a 192k "${f%.m4a}.mp3"
+          done
+      - name: Commit and push mp3 files
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add "*.mp3"
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-convert m4a to mp3"
+          git push
