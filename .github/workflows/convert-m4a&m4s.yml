@@ -1,0 +1,61 @@
+name: 自动转换音频文件为 MP3
+
+on:
+  push:
+    paths:
+      - '**.m4s'
+      - '**.M4S'
+      - '**.m4a'
+      - '**.M4A'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 ffmpeg（静态版）
+        run: |
+          wget -q https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+          tar xf ffmpeg-release-amd64-static.tar.xz
+          sudo cp ffmpeg-*-static/ffmpeg /usr/local/bin/
+          ffmpeg -version
+
+      - name: 列出所有待转换的文件
+        run: |
+          echo "=== M4S 文件 ==="
+          find . -type f \( -iname "*.m4s" \) -exec echo "  {}" \;
+          echo "=== M4A 文件 ==="
+          find . -type f \( -iname "*.m4a" \) -exec echo "  {}" \;
+
+      - name: 转换 M4S/M4A 为 MP3（含修复、删除原始文件）
+        run: |
+          # 处理 M4S 文件（可能为碎片化 MP4，需先修复）
+          find . -type f \( -iname "*.m4s" \) -print0 | while IFS= read -r -d '' f; do
+            echo "--- 开始处理 M4S: $f ---"
+            ffmpeg -f mp4 -i "$f" -c:a copy -f mp4 /tmp/fixed.m4s 2>&1 || { echo "修复失败，跳过"; continue; }
+            ffmpeg -i /tmp/fixed.m4s -vn -c:a libmp3lame -b:a 192k "${f%.*}.mp3" 2>&1 || { echo "转换失败，跳过删除"; continue; }
+            rm -f /tmp/fixed.m4s
+            rm -f "$f"
+            echo "--- 完成并删除原始 M4S: $f ---"
+          done
+
+          # 处理 M4A 文件（普通 AAC 容器，直接转）
+          find . -type f \( -iname "*.m4a" \) -print0 | while IFS= read -r -d '' f; do
+            echo "--- 开始处理 M4A: $f ---"
+            ffmpeg -i "$f" -vn -c:a libmp3lame -b:a 192k "${f%.*}.mp3" 2>&1 || { echo "转换失败，跳过删除"; continue; }
+            rm -f "$f"
+            echo "--- 完成并删除原始 M4A: $f ---"
+          done
+
+      - name: 提交并推送
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .
+          git diff --quiet && git diff --staged --quiet || git commit -m "自动转换 M4S/M4A 为 MP3，并删除原始文件"
+          git push
