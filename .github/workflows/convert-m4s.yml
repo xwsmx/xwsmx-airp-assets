@@ -1,0 +1,35 @@
+name: 自动把 M4S 转成 MP3
+
+on:
+  push:
+    paths:
+      - '**.m4s'          # 只要有 .m4s 被推送就触发
+  workflow_dispatch:       # 也可以手动点按钮跑
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: 把所有 .m4s 转为 .mp3
+        run: |
+          find . -type f -name "*.m4s" | while read f; do
+            echo "正在转换：$f"
+            # -vn 表示不要视频流（如果有的话），只保留音频
+            # -c:a libmp3lame 指定 MP3 编码器
+            # -b:a 192k 输出码率，可自行调整
+            ffmpeg -i "$f" -vn -c:a libmp3lame -b:a 192k "${f%.m4s}.mp3"
+          done
+
+      - name: 提交 MP3 文件
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .
+          git diff --quiet && git diff --staged --quiet || git commit -m "自动转换 M4S 为 MP3"
+          git push
