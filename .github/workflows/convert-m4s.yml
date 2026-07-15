@@ -6,6 +6,9 @@ on:
       - '**.m4s'          # 只要有 .m4s 被推送就触发
   workflow_dispatch:       # 也可以手动点按钮跑
 
+permissions:
+  contents: write
+
 jobs:
   convert:
     runs-on: ubuntu-latest
