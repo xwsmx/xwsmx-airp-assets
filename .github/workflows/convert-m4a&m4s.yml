@@ -16,46 +16,56 @@ jobs:
   convert:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # 升级到 v5 以避免 Node.js 版本警告
+      - uses: actions/checkout@v5
 
-      - name: 安装 ffmpeg（静态版）
+      - name: 安装 ffmpeg
         run: |
-          wget -q https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
-          tar xf ffmpeg-release-amd64-static.tar.xz
-          sudo cp ffmpeg-*-static/ffmpeg /usr/local/bin/
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
           ffmpeg -version
 
       - name: 列出所有待转换的文件
         run: |
           echo "=== M4S 文件 ==="
-          find . -type f \( -iname "*.m4s" \) -exec echo "  {}" \;
+          find . -type f \( -iname "*.m4s" \) -not -path "./.git/*" -exec echo "  {}" \;
           echo "=== M4A 文件 ==="
-          find . -type f \( -iname "*.m4a" \) -exec echo "  {}" \;
+          find . -type f \( -iname "*.m4a" \) -not -path "./.git/*" -exec echo "  {}" \;
 
-      - name: 转换 M4S/M4A 为 MP3（含修复、删除原始文件）
+      - name: 转换 M4S/M4A 为 MP3（含删除原始文件）
         run: |
-          # 处理 M4S 文件（可能为碎片化 MP4，需先修复）
-          find . -type f \( -iname "*.m4s" \) -print0 | while IFS= read -r -d '' f; do
+          # 处理 M4S（碎片化 MP4，ffmpeg 可直接读取）
+          find . -type f \( -iname "*.m4s" \) -not -path "./.git/*" -print0 | while IFS= read -r -d '' f; do
             echo "--- 开始处理 M4S: $f ---"
-            ffmpeg -f mp4 -i "$f" -c:a copy -f mp4 /tmp/fixed.m4s 2>&1 || { echo "修复失败，跳过"; continue; }
-            ffmpeg -i /tmp/fixed.m4s -vn -c:a libmp3lame -b:a 192k "${f%.*}.mp3" 2>&1 || { echo "转换失败，跳过删除"; continue; }
-            rm -f /tmp/fixed.m4s
-            rm -f "$f"
-            echo "--- 完成并删除原始 M4S: $f ---"
+            if ffmpeg -i "$f" -vn -c:a libmp3lame -b:a 192k "${f%.*}.mp3" 2>&1; then
+              echo "转换成功，删除原始文件: $f"
+              rm -f "$f"
+            else
+              echo "转换失败，保留原始文件: $f"
+            fi
+            echo "--- 完成处理 M4S: $f ---"
           done
 
-          # 处理 M4A 文件（普通 AAC 容器，直接转）
-          find . -type f \( -iname "*.m4a" \) -print0 | while IFS= read -r -d '' f; do
+          # 处理 M4A（普通 AAC 容器）
+          find . -type f \( -iname "*.m4a" \) -not -path "./.git/*" -print0 | while IFS= read -r -d '' f; do
             echo "--- 开始处理 M4A: $f ---"
-            ffmpeg -i "$f" -vn -c:a libmp3lame -b:a 192k "${f%.*}.mp3" 2>&1 || { echo "转换失败，跳过删除"; continue; }
-            rm -f "$f"
-            echo "--- 完成并删除原始 M4A: $f ---"
+            if ffmpeg -i "$f" -vn -c:a libmp3lame -b:a 192k "${f%.*}.mp3" 2>&1; then
+              echo "转换成功，删除原始文件: $f"
+              rm -f "$f"
+            else
+              echo "转换失败，保留原始文件: $f"
+            fi
+            echo "--- 完成处理 M4A: $f ---"
           done
 
-      - name: 提交并推送
+      - name: 提交并推送变更
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add .
-          git diff --quiet && git diff --staged --quiet || git commit -m "自动转换 M4S/M4A 为 MP3，并删除原始文件"
-          git push
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "没有变更需要提交"
+          else
+            git commit -m "自动转换 M4S/M4A 为 MP3，并删除原始文件"
+            git push
+          fi
