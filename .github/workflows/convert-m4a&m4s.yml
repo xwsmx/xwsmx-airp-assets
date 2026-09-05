@@ -16,7 +16,6 @@ jobs:
   convert:
     runs-on: ubuntu-latest
     steps:
-      # 升级到 v5 以避免 Node.js 版本警告
       - uses: actions/checkout@v5
 
       - name: 安装 ffmpeg
@@ -25,38 +24,57 @@ jobs:
           sudo apt-get install -y ffmpeg
           ffmpeg -version
 
+      - name: 显示当前仓库文件结构（调试）
+        run: |
+          echo "当前工作目录：$(pwd)"
+          ls -laR
+
       - name: 列出所有待转换的文件
         run: |
           echo "=== M4S 文件 ==="
-          find . -type f \( -iname "*.m4s" \) -not -path "./.git/*" -exec echo "  {}" \;
+          find . -type f \( -iname "*.m4s" \) -not -path "./.git/*" -print
           echo "=== M4A 文件 ==="
-          find . -type f \( -iname "*.m4a" \) -not -path "./.git/*" -exec echo "  {}" \;
+          find . -type f \( -iname "*.m4a" \) -not -path "./.git/*" -print
 
-      - name: 转换 M4S/M4A 为 MP3（含删除原始文件）
+      - name: 转换 M4S/M4A 为 MP3（增强调试）
         run: |
-          # 处理 M4S（碎片化 MP4，ffmpeg 可直接读取）
+          # 先统计文件数量
+          m4s_files=$(find . -type f \( -iname "*.m4s" \) -not -path "./.git/*" -print)
+          m4a_files=$(find . -type f \( -iname "*.m4a" \) -not -path "./.git/*" -print)
+          if [ -z "$m4s_files" ] && [ -z "$m4a_files" ]; then
+            echo "⚠️ 警告：未找到任何 .m4s 或 .m4a 文件，请检查文件扩展名和路径。"
+          fi
+
+          # 处理 M4S
           find . -type f \( -iname "*.m4s" \) -not -path "./.git/*" -print0 | while IFS= read -r -d '' f; do
             echo "--- 开始处理 M4S: $f ---"
-            if ffmpeg -i "$f" -vn -c:a libmp3lame -b:a 192k "${f%.*}.mp3" 2>&1; then
-              echo "转换成功，删除原始文件: $f"
+            output="${f%.*}.mp3"
+            # 添加 -y 覆盖，并捕获错误输出
+            if ffmpeg -y -i "$f" -vn -c:a libmp3lame -b:a 192k "$output" 2>&1; then
+              echo "✅ 转换成功，删除原始文件: $f"
               rm -f "$f"
             else
-              echo "转换失败，保留原始文件: $f"
+              echo "❌ 转换失败，保留原始文件: $f（请检查上方ffmpeg错误信息）"
             fi
             echo "--- 完成处理 M4S: $f ---"
           done
 
-          # 处理 M4A（普通 AAC 容器）
+          # 处理 M4A
           find . -type f \( -iname "*.m4a" \) -not -path "./.git/*" -print0 | while IFS= read -r -d '' f; do
             echo "--- 开始处理 M4A: $f ---"
-            if ffmpeg -i "$f" -vn -c:a libmp3lame -b:a 192k "${f%.*}.mp3" 2>&1; then
-              echo "转换成功，删除原始文件: $f"
+            output="${f%.*}.mp3"
+            if ffmpeg -y -i "$f" -vn -c:a libmp3lame -b:a 192k "$output" 2>&1; then
+              echo "✅ 转换成功，删除原始文件: $f"
               rm -f "$f"
             else
-              echo "转换失败，保留原始文件: $f"
+              echo "❌ 转换失败，保留原始文件: $f"
             fi
             echo "--- 完成处理 M4A: $f ---"
           done
+
+          # 最后检查是否生成了 MP3 文件
+          echo "=== 转换后 MP3 文件列表 ==="
+          find . -type f -iname "*.mp3" -not -path "./.git/*" -print
 
       - name: 提交并推送变更
         run: |
